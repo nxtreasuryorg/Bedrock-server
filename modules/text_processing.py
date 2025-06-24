@@ -2,6 +2,10 @@ from langchain.vectorstores import FAISS
 from langchain.schema import Document
 import re
 import numpy as np
+from modules.bedrock_integration import BedrockClient
+
+# Initialize Bedrock client
+bedrock_client = BedrockClient()
 
 # Process a single chunk sequentially with a simple direct approach
 def process_chunk(chunk, instruction, chunk_id, text_generation_pipeline):
@@ -73,8 +77,8 @@ Return the FULL modified text for this chunk with ALL applicable changes impleme
         return chunk, False
 
 # Process a chunk with change detection
-def process_chunk_with_change_detection(chunk, instruction, chunk_id, text_generation_pipeline):
-    """Process chunk and detect if changes were made"""
+def process_chunk_with_change_detection(chunk, instruction, chunk_id, text_generation_pipeline=None):
+    """Process chunk and detect if changes were made using Bedrock"""
     try:
         return process_chunk(chunk, instruction, chunk_id, text_generation_pipeline)
     except Exception as e:

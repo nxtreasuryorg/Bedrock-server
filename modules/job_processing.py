@@ -20,6 +20,10 @@ from modules.text_processing import (
     find_instruction_targets, 
     prioritize_chunks
 )
+from modules.bedrock_integration import BedrockClient
+
+# Initialize Bedrock client
+bedrock_client = BedrockClient()
 
 # Function to extract key entities from instruction
 def extract_key_entities(instruction):
@@ -206,18 +210,17 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
         total_chunks = len(chunks)
         changes_detected = False
         
-        # Define a worker function for parallel processing
+        # Define a worker function for parallel processing with Bedrock
         def process_chunk_worker(args):
             chunk, idx = args
             chunk_id = f"{idx+1}/{total_chunks}"  # Format as "current/total"
-            result, changed = process_chunk_with_change_detection(chunk, instruction, chunk_id, text_generation_pipeline)
+            result, changed = process_chunk_with_change_detection(chunk, instruction, chunk_id)
             return idx, result, changed
         
         # Use parallel processing for chunks with ThreadPoolExecutor
-        # This is CPU-bound due to text processing, but also involves GPU for inference
-        # Adjust max_workers based on your system - typically num_cpu_cores is good
-        max_workers = min(total_chunks, os.cpu_count() or 4)
-        print(f"Processing {total_chunks} chunks with {max_workers} workers")
+        # Add rate limiting for Bedrock API
+        max_workers = min(total_chunks, 5)  # Limit to 5 concurrent requests to avoid rate limiting
+        print(f"Processing {total_chunks} chunks with {max_workers} workers via AWS Bedrock")
         
         chunk_args = [(chunk, i) for i, chunk in enumerate(chunks)]
         
@@ -237,7 +240,7 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
                 # Update progress
                 progress_pct = 40 + int(completed / total_chunks * 30)  # From 40% to 70%
                 job_results[job_id]['progress'] = progress_pct
-                job_results[job_id]['message'] = f"Processing document: {completed}/{total_chunks} chunks completed"
+                job_results[job_id]['message'] = f"Processing document: {completed}/{total_chunks} chunks completed via AWS Bedrock"
                 print(f"Progress: {completed}/{total_chunks} chunks processed")
         
         if not changes_detected:
@@ -338,15 +341,15 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
         job_results[job_id]['progress'] = 100
 
 # Job processing worker thread
-def process_jobs(embedding, text_generation_pipeline):
-    """Background thread for processing jobs from the queue"""
+def process_jobs(embedding=None, text_generation_pipeline=None):
+    """Background thread for processing jobs from the queue - updated for Bedrock"""
     while should_process:
         try:
             # Get a job from the queue with a timeout
             try:
                 job_id, instruction, file_path, original_filename = job_queue.get(timeout=1)
-                # Process the job
-                process_document(job_id, instruction, file_path, original_filename, embedding, text_generation_pipeline)
+                # Process the job with Bedrock (ignoring embedding and text_generation_pipeline)
+                process_document(job_id, instruction, file_path, original_filename)
             except queue.Empty:
                 # No jobs to process, wait a bit
                 time.sleep(0.1)
@@ -357,12 +360,12 @@ def process_jobs(embedding, text_generation_pipeline):
             time.sleep(1)  # Wait a bit before trying again
 
 # Start the job processing thread
-def start_processing_thread(embedding, text_generation_pipeline):
-    """Start the background thread for job processing"""
+def start_processing_thread(embedding=None, text_generation_pipeline=None):
+    """Start the background thread for job processing - updated for Bedrock"""
     global processing_thread
     processing_thread = threading.Thread(
         target=process_jobs, 
-        args=(embedding, text_generation_pipeline),
+        args=(),  # No need to pass models anymore
         daemon=True
     )
     processing_thread.start()

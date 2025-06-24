@@ -34,7 +34,7 @@ def extract_text_as_html(pdf_path):
             page_html = []
             
             # Extract text blocks with position information
-            blocks = page.get_text("dict")["blocks"]
+            blocks = page.extract_text("dict")["blocks"]
             
             for block in blocks:
                 if "lines" not in block:
@@ -129,7 +129,7 @@ def extract_text_as_html(pdf_path):
             doc = fitz.open(pdf_path)
             text_content = ""
             for page_num in range(len(doc)):
-                text_content += doc[page_num].get_text()
+                text_content += doc[page_num].extract_text()
             doc.close()
             
             # Convert plain text to simple HTML
