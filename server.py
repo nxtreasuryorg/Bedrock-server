@@ -18,6 +18,7 @@ from flask import Flask, request, jsonify
 # Import modules
 from modules.job_processing import job_queue, job_results, start_processing_thread
 from modules.bedrock_integration import BedrockClient
+from modules.warmup_scheduler import initialize_warmup_scheduler, get_warmup_scheduler, update_last_request_time
 
 # Initialize Bedrock client
 bedrock_client = BedrockClient()
@@ -43,14 +44,55 @@ print(f"PDF output folder: {PDF_OUTPUT_FOLDER}")
 # Start the job processing thread with Bedrock
 processing_thread = start_processing_thread()
 
+# Initialize and start the warmup scheduler (15-minute intervals)
+warmup_scheduler = initialize_warmup_scheduler(warmup_interval_minutes=15)
+print(f"🔥 Warmup scheduler initialized - keeping model warm every 15 minutes")
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
+    # Get warmup stats for health check
+    scheduler = get_warmup_scheduler()
+    warmup_status = "active" if scheduler and scheduler.is_running else "inactive"
+    
     return jsonify({
         "status": "healthy", 
         "message": "Model server is running with AWS Bedrock integration",
-        "aws_region": os.environ.get('AWS_REGION', 'Not set')
+        "aws_region": os.environ.get('AWS_REGION', 'Not set'),
+        "warmup_scheduler": warmup_status
     }), 200
+
+@app.route('/warmup/stats', methods=['GET'])
+def warmup_stats():
+    """Get warmup scheduler statistics"""
+    scheduler = get_warmup_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Warmup scheduler not initialized"}), 500
+        
+    stats = scheduler.get_stats()
+    return jsonify({
+        "warmup_scheduler": {
+            "status": "running" if scheduler.is_running else "stopped",
+            "interval_minutes": scheduler.warmup_interval / 60,
+            "stats": stats
+        }
+    }), 200
+
+@app.route('/warmup/trigger', methods=['POST'])
+def trigger_warmup():
+    """Manually trigger a warmup request (for testing)"""
+    scheduler = get_warmup_scheduler()
+    if not scheduler:
+        return jsonify({"error": "Warmup scheduler not initialized"}), 500
+        
+    # Send warmup request
+    success = scheduler.send_warmup_request()
+    
+    return jsonify({
+        "message": "Manual warmup triggered",
+        "success": success,
+        "stats": scheduler.get_stats()
+    }), 200 if success else 500
 
 @app.route('/upload', methods=['POST'])
 def upload_document():
@@ -86,6 +128,9 @@ def upload_document():
         # Add job to the queue
         job_queue.put((job_id, instruction, file_path, original_filename))
         
+        # Update warmup scheduler - real user request received
+        update_last_request_time()
+        
         # Return the job ID immediately
         return jsonify({
             'job_id': job_id,
@@ -113,8 +158,8 @@ def get_job_status(job_id):
     
     # Include results if job is completed
     if job['status'] == 'completed':
-        response['pdf_base64'] = job['pdf_base64']
-        response['response'] = job['response']
+        response['pdf_base64'] = job.get('pdf_base64', '')
+        response['response'] = job.get('response', '')
     
     return jsonify(response), 200
 
@@ -137,8 +182,8 @@ def get_job_result(job_id):
     return jsonify({
         'job_id': job_id,
         'status': 'completed',
-        'response': job['response'],
-        'pdf_base64': job['pdf_base64']
+        'response': job.get('response', ''),
+        'pdf_base64': job.get('pdf_base64', '')
     }), 200
 
 @app.route('/process_text', methods=['POST'])
@@ -178,6 +223,9 @@ def process_text():
         
         # Add job to the queue
         job_queue.put((job_id, instruction, file_path, temp_filename))
+        
+        # Update warmup scheduler - real user request received
+        update_last_request_time()
         
         # Return the job ID immediately
         return jsonify({

@@ -299,20 +299,22 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
         
         print(f"PDF generation time: {time.time() - pdf_start:.2f} seconds")
         
-        # Save PDF to file
+        # Save PDF to file temporarily (only for generating base64)
+        pdf_path = None
         try:
             pdf_path = save_pdf(pdf_buffer, original_filename)
             # Encode PDF as base64 for sending to client
             pdf_buffer.seek(0)
             pdf_base64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
             
-            # Update job with results
+            # Update job with results (don't store pdf_path since we'll delete it)
             job_results[job_id]['status'] = 'completed'
             job_results[job_id]['progress'] = 100
             job_results[job_id]['message'] = "Processing complete"
             job_results[job_id]['response'] = combined_response
             job_results[job_id]['pdf_base64'] = pdf_base64
-            job_results[job_id]['pdf_path'] = pdf_path
+            # Don't store pdf_path since file will be deleted
+            
         except Exception as e:
             error_msg = f"Error saving PDF: {str(e)}"
             print(error_msg)
@@ -321,12 +323,19 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
             job_results[job_id]['message'] = error_msg
             job_results[job_id]['progress'] = 100
             raise Exception(error_msg)
-        
-        # Clean up uploaded file
-        try:
-            os.remove(file_path)
-        except Exception as e:
-            print(f"Warning: Could not remove temporary file {file_path}: {str(e)}")
+        finally:
+            # Clean up all files - uploaded document and generated PDF
+            files_to_clean = [file_path]
+            if pdf_path:
+                files_to_clean.append(pdf_path)
+                
+            for file_to_remove in files_to_clean:
+                try:
+                    if os.path.exists(file_to_remove):
+                        os.remove(file_to_remove)
+                        print(f"✅ Cleaned up file: {file_to_remove}")
+                except Exception as e:
+                    print(f"⚠️ Warning: Could not remove file {file_to_remove}: {str(e)}")
         
         print(f"Job {job_id} completed successfully in {time.time() - start_time:.2f} seconds")
         
@@ -339,6 +348,14 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
         job_results[job_id]['status'] = 'error'
         job_results[job_id]['message'] = error_msg
         job_results[job_id]['progress'] = 100
+        
+        # Clean up uploaded file even on error
+        try:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"✅ Cleaned up uploaded file after error: {file_path}")
+        except Exception as cleanup_e:
+            print(f"⚠️ Warning: Could not remove uploaded file after error {file_path}: {str(cleanup_e)}")
 
 # Job processing worker thread
 def process_jobs(embedding=None, text_generation_pipeline=None):
