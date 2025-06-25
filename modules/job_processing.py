@@ -328,13 +328,13 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
             files_to_clean = [file_path]
             if pdf_path:
                 files_to_clean.append(pdf_path)
-                
+        
             for file_to_remove in files_to_clean:
-                try:
+        try:
                     if os.path.exists(file_to_remove):
                         os.remove(file_to_remove)
                         print(f"✅ Cleaned up file: {file_to_remove}")
-                except Exception as e:
+        except Exception as e:
                     print(f"⚠️ Warning: Could not remove file {file_to_remove}: {str(e)}")
         
         print(f"Job {job_id} completed successfully in {time.time() - start_time:.2f} seconds")

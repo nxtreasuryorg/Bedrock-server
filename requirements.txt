@@ -1,0 +1,28 @@
+# Core Web Framework
+Flask==2.3.3
+gunicorn==21.2.0
+
+# AWS SDK for Bedrock integration
+boto3==1.34.131
+botocore==1.34.131
+
+# PDF Processing
+PyMuPDF==1.23.26
+reportlab==4.0.4
+xhtml2pdf==0.2.11
+
+# HTML/XML Processing  
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# LangChain for text processing
+langchain-community==0.0.38
+langchain-core==0.1.52
+langchain-text-splitters==0.0.1
+
+# Vector store
+faiss-cpu==1.7.4
+
+# Utilities
+requests==2.31.0
+numpy==1.24.3 
