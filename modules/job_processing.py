@@ -60,12 +60,12 @@ processing_thread = None
 should_process = True
 
 # Process document and generate response
-def process_document(job_id, instruction, file_path, original_filename, embedding, text_generation_pipeline):
-    """Process document and generate response"""
+def process_document(job_id, instruction, file_path, original_filename, embedding=None, text_generation_pipeline=None):
+    """Process document with AWS Bedrock - embedding and text_generation_pipeline parameters kept for compatibility but not used"""
     start_time = time.time()
+    print(f"Starting job {job_id} with file: {original_filename}")
+    
     try:
-        print(f"\n=== Starting new job {job_id} ===")
-        
         # Update job status
         job_results[job_id]['status'] = 'processing'
         job_results[job_id]['progress'] = 10
@@ -330,11 +330,11 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
                 files_to_clean.append(pdf_path)
         
             for file_to_remove in files_to_clean:
-        try:
+                try:
                     if os.path.exists(file_to_remove):
                         os.remove(file_to_remove)
                         print(f"✅ Cleaned up file: {file_to_remove}")
-        except Exception as e:
+                except Exception as e:
                     print(f"⚠️ Warning: Could not remove file {file_to_remove}: {str(e)}")
         
         print(f"Job {job_id} completed successfully in {time.time() - start_time:.2f} seconds")
