@@ -8,69 +8,11 @@ from modules.bedrock_integration import BedrockClient
 bedrock_client = BedrockClient()
 
 # Process a single chunk sequentially with a simple direct approach
-def process_chunk(chunk, instruction, chunk_id, text_generation_pipeline):
+def process_chunk(chunk, instruction, chunk_id, text_generation_pipeline=None):
+    """Process chunk using Bedrock - text_generation_pipeline parameter kept for compatibility but not used"""
     try:
-        total_chunks = int(chunk_id.split('/')[1]) if '/' in str(chunk_id) else 1
-        current_chunk = int(chunk_id.split('/')[0]) if '/' in str(chunk_id) else chunk_id
-        
-        print(f"Processing chunk {current_chunk}/{total_chunks}")
-        
-        # Create Mistral-specific prompt format with [INST] and [/INST] tags
-        mistral_prompt = f"<s>[INST] "
-        # Add system prompt within the instruction
-        mistral_prompt += """You are a precise contract editor that strictly modifies legal documents according to user instructions.
-
-Core requirements:
-1. You MUST make ALL changes requested in the user's instructions - this is CRITICAL
-2. If there are MULTIPLE instructions (separated by line breaks or numbers), you MUST implement EACH ONE separately
-3. Make ONLY the changes specified in the instructions - do not add, remove, or modify anything else
-4. NEVER generate or invent new legal language not present in the original document
-5. ONLY modify text explicitly mentioned in the user's instructions
-6. Maintain exact terminology from the original document - do not substitute or paraphrase legal terms
-7. Process each instruction step by step - do not skip any requested change
-8. Return the FULL modified text, with ALL the requested changes implemented
-
-IMPORTANT NOTES:
-- Pay special attention to company names, addresses, dates, and monetary values
-- Look carefully for the specific text mentioned in the instruction and replace it EXACTLY as requested
-- If an instruction says to change text from 'X' to 'Y', you MUST find and replace every instance of 'X' with 'Y'
-- Instructions often specify entity names with quotes (e.g., from 'ABC Inc.' to 'XYZ Corp.') - these are critical to replace correctly
-- If you can't find the exact text mentioned, look for similar text that matches the context
-"""
-        
-        mistral_prompt += f"""You are processing chunk {current_chunk} of {total_chunks} of a document.
-
-Original text for chunk {current_chunk}/{total_chunks}: 
-"{chunk}"
-
----
-Instruction to apply to this chunk: {instruction}
-
-The instruction may contain MULTIPLE changes to make. Implement ALL of them that apply to this chunk.
-Some instructions may not apply to this specific chunk but to other parts of the document.
-Return the FULL modified text for this chunk with ALL applicable changes implemented."""
-        mistral_prompt += " [/INST]"
-        
-        # Use pipeline with optimized generation parameters
-        chunk_len = len(chunk)
-        max_tokens = min(4000, chunk_len + 500)  # Increased from 2000 to 4000 and added more buffer
-        
-        chunk_response = text_generation_pipeline(
-            mistral_prompt,
-            max_new_tokens=max_tokens,
-            do_sample=False  # Disable sampling for deterministic generation
-        )[0]["generated_text"]
-        
-        # Debug response
-        response_length = len(chunk_response) if chunk_response else 0
-        print(f"Completed chunk {current_chunk}/{total_chunks} - Response length: {response_length} chars")
-        
-        # If response is empty or too short, return the original chunk
-        if not chunk_response or len(chunk_response) < 10:
-            print(f"WARNING: Empty or very short response for chunk {current_chunk}/{total_chunks}. Using original text.")
-            return chunk, False
-            
-        return chunk_response, True
+        # Use the Bedrock client to process the chunk
+        return bedrock_client.process_chunk(chunk, instruction, chunk_id)
     except Exception as e:
         print(f"Error processing chunk {chunk_id}: {str(e)}")
         # Return original chunk on error

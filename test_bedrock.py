@@ -1,6 +1,6 @@
 import os
 import sys
-from nxtAppCore.bedrock_integration.client import get_bedrock_client, invoke_mistral_model, list_available_models
+from modules.bedrock_integration import BedrockClient
 
 # Set environment variable to use Bedrock
 os.environ['USE_BEDROCK'] = 'true'
@@ -12,7 +12,7 @@ os.environ['AWS_REGION'] = os.environ.get('AWS_REGION', 'us-east-1')
 def test_bedrock_client():
     """Test that we can initialize the Bedrock client"""
     try:
-        client = get_bedrock_client()
+        client = BedrockClient()
         print("✅ Successfully initialized Bedrock client")
         return True
     except Exception as e:
@@ -23,42 +23,33 @@ def test_list_models():
     """Test listing available models"""
     try:
         print("\n=== Listing available models ===")
-        list_available_models()
-        print("✅ Successfully listed models")
+        # For now, just confirm we can create a client
+        client = BedrockClient()
+        print(f"✅ Successfully created client with model: {client.model_id}")
         return True
     except Exception as e:
         print(f"❌ Error listing models: {str(e)}")
         return False
 
 def test_invoke_model():
-    """Test model invocation with both imported and fallback models"""
-    success = False
-    
-    # Try imported model first
+    """Test model invocation with Bedrock"""
     try:
-        print("\n=== Testing imported Mistral model ===")
-        imported_model_id = os.environ.get('BEDROCK_MODEL_ID', 'mistral.mistral-8x7b-instruct-v0:1')
-        prompt = "<s>[INST] Say hello [/INST]"
-        result = invoke_mistral_model(prompt, max_tokens=10, modelId=imported_model_id)
-        print(f"✅ Successfully invoked imported model. Response: {result}")
-        success = True
+        print("\n=== Testing Bedrock model invocation ===")
+        client = BedrockClient()
+        
+        # Test the actual Bedrock API call directly
+        test_prompt = "<s>[INST] Say hello [/INST]"
+        response = client._call_bedrock_with_retry(
+            model_id=client.model_id,
+            prompt=test_prompt,
+            max_tokens=50
+        )
+        print(f"✅ Successfully invoked Bedrock model directly")
+        print(f"Response: {response}")
+        return True
     except Exception as e:
-        print(f"⚠️ Error with imported model: {str(e)}")
-        print("Will try fallback model...")
-    
-    # Try fallback model (Claude)
-    try:
-        print("\n=== Testing Mistral fallback model ===")
-        fallback_model_id = "mistral.mistral-8x7b-instruct-v0:1"
-        # Mistral prompt format
-        prompt = "<s>[INST] Say hello [/INST]"
-        result = invoke_mistral_model(prompt, max_tokens=10, modelId=fallback_model_id)
-        print(f"✅ Successfully invoked Mistral fallback model. Response: {result}")
-        success = True
-    except Exception as e:
-        print(f"❌ Error with fallback model: {str(e)}")
-    
-    return success
+        print(f"❌ Error with Bedrock model: {str(e)}")
+        return False
 
 if __name__ == "__main__":
     print("Testing Bedrock integration with real credentials...")

@@ -214,8 +214,20 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
         def process_chunk_worker(args):
             chunk, idx = args
             chunk_id = f"{idx+1}/{total_chunks}"  # Format as "current/total"
-            result, changed = process_chunk_with_change_detection(chunk, instruction, chunk_id)
-            return idx, result, changed
+            try:
+                result, changed = process_chunk_with_change_detection(chunk, instruction, chunk_id)
+                return idx, result, changed
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Error processing chunk {chunk_id}: {error_msg}")
+                
+                # Check for credential errors
+                if "AWS Credentials Error" in error_msg or "security token" in error_msg.lower():
+                    # This is a critical error that won't resolve with retries
+                    raise Exception(f"AWS Bedrock credentials error: {error_msg}")
+                
+                # For other errors, return original chunk
+                return idx, chunk, False
         
         # Use parallel processing for chunks with ThreadPoolExecutor
         # Add rate limiting for Bedrock API
@@ -229,19 +241,30 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
             completed = 0
             
             for future in concurrent.futures.as_completed(futures):
-                idx, result, changed = future.result()
-                processed_chunks[idx] = result
-                completed += 1
-                
-                if changed:
-                    changes_detected = True
-                    print(f"Chunk {idx+1} was modified according to instruction")
-                
-                # Update progress
-                progress_pct = 40 + int(completed / total_chunks * 30)  # From 40% to 70%
-                job_results[job_id]['progress'] = progress_pct
-                job_results[job_id]['message'] = f"Processing document: {completed}/{total_chunks} chunks completed via AWS Bedrock"
-                print(f"Progress: {completed}/{total_chunks} chunks processed")
+                try:
+                    idx, result, changed = future.result()
+                    processed_chunks[idx] = result
+                    completed += 1
+                    
+                    if changed:
+                        changes_detected = True
+                        print(f"Chunk {idx+1} was modified according to instruction")
+                    
+                    # Update progress
+                    progress_pct = 40 + int(completed / total_chunks * 30)  # From 40% to 70%
+                    job_results[job_id]['progress'] = progress_pct
+                    job_results[job_id]['message'] = f"Processing document: {completed}/{total_chunks} chunks completed via AWS Bedrock"
+                    print(f"Progress: {completed}/{total_chunks} chunks processed")
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"Critical error in chunk processing: {error_msg}")
+                    
+                    # Update job with error status
+                    job_results[job_id]['status'] = 'error'
+                    job_results[job_id]['message'] = f"Processing failed: {error_msg}"
+                    job_results[job_id]['progress'] = 100
+                    raise Exception(error_msg)
         
         if not changes_detected:
             print("WARNING: No changes detected in any chunk. The instruction may not match document content.")

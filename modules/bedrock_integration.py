@@ -133,16 +133,23 @@ Return the FULL modified text for this chunk with ALL applicable changes impleme
                 
             except boto3.exceptions.Boto3Error as e:
                 last_exception = e
+                error_str = str(e)
+                
+                # Check for credential issues
+                if "UnrecognizedClientException" in error_str or "InvalidSignatureException" in error_str or "security token" in error_str.lower():
+                    logger.error(f"AWS Credentials Error: {error_str}")
+                    logger.error("Please check your AWS credentials and permissions for Bedrock")
+                    raise Exception(f"AWS Credentials Error: Invalid or missing AWS credentials. Please configure AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and ensure Bedrock permissions.")
                 
                 # Check for rate limiting or throttling
-                if "ThrottlingException" in str(e) or "TooManyRequestsException" in str(e):
+                elif "ThrottlingException" in error_str or "TooManyRequestsException" in error_str:
                     logger.warning(f"Rate limited by Bedrock (attempt {attempt+1}/{retries}), retrying in {backoff_time}s...")
                     time.sleep(backoff_time)
                     backoff_time *= 2  # Exponential backoff
                     continue
                     
                 # Check for service unavailability
-                elif "ServiceUnavailable" in str(e) or "InternalServerError" in str(e):
+                elif "ServiceUnavailable" in error_str or "InternalServerError" in error_str:
                     logger.warning(f"Bedrock service unavailable (attempt {attempt+1}/{retries}), retrying in {backoff_time}s...")
                     time.sleep(backoff_time)
                     backoff_time *= 2
@@ -150,7 +157,7 @@ Return the FULL modified text for this chunk with ALL applicable changes impleme
                     
                 else:
                     # Other AWS errors, log and retry with backoff
-                    logger.error(f"AWS Bedrock error (attempt {attempt+1}/{retries}): {str(e)}")
+                    logger.error(f"AWS Bedrock error (attempt {attempt+1}/{retries}): {error_str}")
                     time.sleep(backoff_time)
                     backoff_time *= 2
                     continue
