@@ -20,13 +20,16 @@ class BedrockClient:
                 service_name='bedrock-runtime',
                 region_name=os.environ.get('AWS_REGION')
             )
+            # Get the model ID from environment variable
+            self.model_id = os.environ.get('BEDROCK_MODEL_ID', 'mistral.mistral-8b-instruct-v1:0')
             logger.info(f"Initialized Bedrock client in {os.environ.get('AWS_REGION')}")
+            logger.info(f"Using model: {self.model_id}")
         except Exception as e:
             logger.error(f"Failed to initialize Bedrock client: {str(e)}")
             raise
 
     def process_chunk(self, chunk, instruction, chunk_id):
-        """Process a document chunk using AWS Bedrock Ministral 8B model"""
+        """Process a document chunk using AWS Bedrock Mistral model"""
         try:
             total_chunks = int(chunk_id.split('/')[1]) if '/' in str(chunk_id) else 1
             current_chunk = int(chunk_id.split('/')[0]) if '/' in str(chunk_id) else chunk_id
@@ -77,7 +80,7 @@ Return the FULL modified text for this chunk with ALL applicable changes impleme
             start_time = time.time()
             
             response = self._call_bedrock_with_retry(
-                model_id="mistral.mistral-8b-instruct-v1:0",  # Ministral 8B
+                model_id=self.model_id,  # Use the configured model ID
                 prompt=mistral_prompt,
                 max_tokens=max_tokens
             )

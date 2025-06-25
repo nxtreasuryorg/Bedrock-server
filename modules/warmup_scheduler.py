@@ -1,5 +1,6 @@
 import threading
 import time
+import os
 import logging
 from datetime import datetime, timedelta
 from modules.bedrock_integration import BedrockClient
@@ -18,6 +19,7 @@ class ModelWarmupScheduler:
         """
         self.warmup_interval = warmup_interval_minutes * 60  # Convert to seconds
         self.bedrock_client = BedrockClient()
+        self.model_id = os.environ.get('BEDROCK_MODEL_ID', 'mistral.mistral-8b-instruct-v1:0')
         self.is_running = False
         self.warmup_thread = None
         self.last_real_request = datetime.now()
@@ -52,9 +54,9 @@ class ModelWarmupScheduler:
             logger.info("🔥 Sending warmup request to Bedrock...")
             start_time = time.time()
             
-            # Send warmup request using the existing Bedrock client
+            # Send warmup request using the configured model ID
             response = self.bedrock_client._call_bedrock_with_retry(
-                model_id="mistral.mistral-8b-instruct-v1:0",
+                model_id=self.model_id,  # Use the configured model ID
                 prompt=warmup_prompt,
                 max_tokens=5,  # Minimal response
                 temperature=0.1
