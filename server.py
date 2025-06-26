@@ -14,6 +14,10 @@ from xhtml2pdf import pisa
 import html
 import concurrent.futures  # For parallel processing
 from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+
+# Load environment variables from .env file (for local development)
+load_dotenv()
 
 # Import modules
 from modules.job_processing import job_queue, job_results, start_processing_thread
