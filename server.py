@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import modules
-from modules.job_processing import job_queue, job_results, start_processing_thread
+from modules.job_processing import job_queue, job_results, start_processing_thread, process_document
 from modules.bedrock_integration import BedrockClient
 from modules.warmup_scheduler import initialize_warmup_scheduler, get_warmup_scheduler, update_last_request_time
 
@@ -47,6 +47,7 @@ print(f"PDF output folder: {PDF_OUTPUT_FOLDER}")
 
 # Start the job processing thread with Bedrock
 processing_thread = start_processing_thread()
+print(f"🔄 Processing thread started: {processing_thread is not None}")
 
 # Initialize and start the warmup scheduler (15-minute intervals)
 warmup_scheduler = initialize_warmup_scheduler(warmup_interval_minutes=15)
@@ -241,6 +242,69 @@ def process_text():
     except Exception as e:
         print(f"Error processing text: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/debug/queue', methods=['GET'])
+def debug_queue():
+    """Debug endpoint to check queue status and trigger processing"""
+    queue_size = job_queue.qsize()
+    thread_alive = processing_thread.is_alive() if processing_thread else False
+    
+    # Count jobs by status
+    status_counts = {}
+    for job_id, job in job_results.items():
+        status = job['status']
+        status_counts[status] = status_counts.get(status, 0) + 1
+    
+    return jsonify({
+        "queue_size": queue_size,
+        "processing_thread_alive": thread_alive,
+        "job_status_counts": status_counts,
+        "total_jobs": len(job_results)
+    }), 200
+
+@app.route('/debug/process_queue', methods=['POST'])
+def trigger_queue_processing():
+    """Manually trigger queue processing (for debugging Render issues)"""
+    try:
+        processed_count = 0
+        max_jobs = 5  # Limit to prevent timeout
+        
+        while not job_queue.empty() and processed_count < max_jobs:
+            try:
+                # Get job from queue with short timeout
+                job_id, instruction, file_path, original_filename = job_queue.get(timeout=1)
+                
+                # Process immediately in the current request context
+                print(f"Manually processing job {job_id}")
+                
+                # Start processing in background thread to avoid blocking the request
+                import threading
+                
+                def process_in_background():
+                    try:
+                        process_document(job_id, instruction, file_path, original_filename)
+                    except Exception as e:
+                        print(f"Background processing error for {job_id}: {e}")
+                        if job_id in job_results:
+                            job_results[job_id]['status'] = 'error'
+                            job_results[job_id]['message'] = f"Processing error: {str(e)}"
+                
+                bg_thread = threading.Thread(target=process_in_background, daemon=True)
+                bg_thread.start()
+                
+                processed_count += 1
+                
+            except queue.Empty:
+                break
+        
+        return jsonify({
+            "message": f"Triggered processing for {processed_count} jobs",
+            "processed_jobs": processed_count,
+            "remaining_queue_size": job_queue.qsize()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Queue processing failed: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001)
