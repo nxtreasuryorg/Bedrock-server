@@ -133,6 +133,32 @@ def upload_document():
         # Add job to the queue
         job_queue.put((job_id, instruction, file_path, original_filename))
         
+        # Check if processing thread is alive - if not, trigger immediate processing
+        thread_alive = processing_thread.is_alive() if processing_thread else False
+        if not thread_alive:
+            print(f"⚠️ Processing thread is dead, triggering immediate processing for job {job_id}")
+            # Process in background thread to avoid blocking the upload response
+            import threading
+            
+            def process_immediately():
+                try:
+                    # Get the job we just added
+                    if not job_queue.empty():
+                        job_data = job_queue.get(timeout=1)
+                        job_id_from_queue, instruction_from_queue, file_path_from_queue, filename_from_queue = job_data
+                        print(f"Processing job {job_id_from_queue} immediately")
+                        process_document(job_id_from_queue, instruction_from_queue, file_path_from_queue, filename_from_queue)
+                except Exception as e:
+                    print(f"Immediate processing error for {job_id}: {e}")
+                    if job_id in job_results:
+                        job_results[job_id]['status'] = 'error'
+                        job_results[job_id]['message'] = f"Processing error: {str(e)}"
+            
+            immediate_thread = threading.Thread(target=process_immediately, daemon=True)
+            immediate_thread.start()
+            
+            job_results[job_id]['message'] = 'Processing started immediately (background thread backup)'
+        
         # Update warmup scheduler - real user request received
         update_last_request_time()
         
@@ -228,6 +254,32 @@ def process_text():
         
         # Add job to the queue
         job_queue.put((job_id, instruction, file_path, temp_filename))
+        
+        # Check if processing thread is alive - if not, trigger immediate processing
+        thread_alive = processing_thread.is_alive() if processing_thread else False
+        if not thread_alive:
+            print(f"⚠️ Processing thread is dead, triggering immediate processing for job {job_id}")
+            # Process in background thread to avoid blocking the upload response
+            import threading
+            
+            def process_immediately():
+                try:
+                    # Get the job we just added
+                    if not job_queue.empty():
+                        job_data = job_queue.get(timeout=1)
+                        job_id_from_queue, instruction_from_queue, file_path_from_queue, filename_from_queue = job_data
+                        print(f"Processing job {job_id_from_queue} immediately")
+                        process_document(job_id_from_queue, instruction_from_queue, file_path_from_queue, filename_from_queue)
+                except Exception as e:
+                    print(f"Immediate processing error for {job_id}: {e}")
+                    if job_id in job_results:
+                        job_results[job_id]['status'] = 'error'
+                        job_results[job_id]['message'] = f"Processing error: {str(e)}"
+            
+            immediate_thread = threading.Thread(target=process_immediately, daemon=True)
+            immediate_thread.start()
+            
+            job_results[job_id]['message'] = 'Processing started immediately (background thread backup)'
         
         # Update warmup scheduler - real user request received
         update_last_request_time()
