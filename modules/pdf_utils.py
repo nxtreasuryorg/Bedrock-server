@@ -34,7 +34,7 @@ def extract_text_as_html(pdf_path):
             page_html = []
             
             # Extract text blocks with position information
-            blocks = page.extract_text("dict")["blocks"]
+            blocks = page.get_text("dict")["blocks"]
             
             for block in blocks:
                 if "lines" not in block:
@@ -129,7 +129,7 @@ def extract_text_as_html(pdf_path):
             doc = fitz.open(pdf_path)
             text_content = ""
             for page_num in range(len(doc)):
-                text_content += doc[page_num].extract_text()
+                text_content += doc[page_num].get_text()
             doc.close()
             
             # Convert plain text to simple HTML
@@ -139,78 +139,116 @@ def extract_text_as_html(pdf_path):
             print(f"Fallback extraction also failed: {str(e2)}")
             return ""
 
-# Process HTML with model changes - optimized version
+# Process HTML with model changes - preserve original structure
 def process_html_with_model(html_content, model_response):
+    """Process HTML with model changes while preserving original structure"""
     try:
-        # Parse the HTML - faster parsing with lxml
-        soup = BeautifulSoup(html_content, 'lxml')
+        print(f"Processing HTML with model response (length: {len(model_response)})")
         
-        # Extract all text content from the HTML to create a single document
+        # Clean the model response - remove quotes if wrapped
+        cleaned_response = model_response.strip()
+        if cleaned_response.startswith('"') and cleaned_response.endswith('"'):
+            cleaned_response = cleaned_response[1:-1]
+        
+        # Remove markdown code fences if present
+        if cleaned_response.startswith('```html'):
+            cleaned_response = cleaned_response[7:]  # Remove ```html
+        if cleaned_response.endswith('```'):
+            cleaned_response = cleaned_response[:-3]  # Remove ```
+        cleaned_response = cleaned_response.strip()
+        
+        # Check if the model response is already properly formatted HTML
+        if ('<!DOCTYPE' in cleaned_response or '<html' in cleaned_response or 
+            ('<div' in cleaned_response and '</div>' in cleaned_response)):
+            print("Model returned HTML formatted content - using directly")
+            
+            # Ensure it has proper document structure
+            if not cleaned_response.startswith('<!DOCTYPE'):
+                # Wrap in proper HTML structure if it's just body content
+                if not cleaned_response.startswith('<html'):
+                    cleaned_response = f"""<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: Times New Roman, serif; font-size: 11pt; line-height: 1.5; }}
+        .section {{ margin-top: 10px; margin-bottom: 10px; }}
+        .signature {{ margin-top: 20px; margin-bottom: 20px; }}
+        .heading {{ font-weight: bold; }}
+        .indent {{ margin-left: 20px; }}
+        .clause {{ margin-top: 10px; margin-bottom: 10px; }}
+        .paragraph {{ margin-top: 6px; margin-bottom: 6px; }}
+    </style>
+</head>
+<body>
+{cleaned_response}
+</body>
+</html>"""
+            
+            print(f"Using model HTML response directly (length: {len(cleaned_response)})")
+            return cleaned_response
+        
+        # If model didn't return HTML, fall back to the original approach
+        print("Model returned plain text - converting back to HTML format")
+        
+        # Parse the original HTML
+        soup = BeautifulSoup(html_content, 'html.parser')
+        original_text = soup.get_text()
+        
+        print(f"Original text length: {len(original_text)}")
+        print(f"Model response length: {len(cleaned_response)}")
+        
+        # If the model response is much shorter, something went wrong
+        if len(cleaned_response) < len(original_text) * 0.3:
+            print("Model response too short, keeping original HTML")
+            return html_content
+        
+        # Simple approach: replace the body content while keeping the structure
         if soup.body:
-            original_document = ""
-            text_nodes = []
+            # Clear the body and add the model response as formatted content
+            soup.body.clear()
             
-            # Collect all text nodes with their parent elements - faster with direct string search
-            for element in soup.body.find_all(string=True):
-                if element.strip():  # Only non-empty text nodes
-                    original_document += element + "\n"
-                    text_nodes.append((element, element.parent))
-        else:
-            # If no body found, create simple HTML
-            return f'<!DOCTYPE html><html><body><pre>{html.escape(model_response)}</pre></body></html>'
-        
-        # Split the model response and original document into lines for faster processing
-        model_lines = model_response.strip().split('\n')
-        original_lines = original_document.strip().split('\n')
-        
-        # Faster mapping approach using hash-based lookup
-        replacements = {}
-        original_map = {line.strip(): i for i, line in enumerate(original_lines) if line.strip()}
-        
-        # For each line in the model response, try to find a match in the original
-        for model_line in model_lines:
-            model_line = model_line.strip()
-            if not model_line:
-                continue
-                
-            # Check for exact match first (fastest)
-            if model_line in original_map:
-                orig_line = original_lines[original_map[model_line]].strip()
-                if orig_line != model_line:  # Only add if different
-                    replacements[orig_line] = model_line
-                continue
-            
-            # For non-exact matches, use a faster similarity approach
-            for orig_line in original_lines:
-                orig_line = orig_line.strip()
-                if not orig_line:
+            # Parse the model response into paragraphs and format appropriately
+            paragraphs = cleaned_response.split('\n\n')
+            for para in paragraphs:
+                para = para.strip()
+                if not para:
                     continue
                 
-                # Quick length check first
-                if abs(len(orig_line) - len(model_line)) > min(len(orig_line), len(model_line)) * 0.3:
-                    continue
+                # Create appropriate HTML elements based on content
+                if para.upper() == para and len(para.split()) <= 5:
+                    # All caps short text = title
+                    new_element = soup.new_tag('h1', **{'class': 'heading', 'style': 'text-align: center;'})
+                elif para.endswith(':') or (para.isupper() and len(para.split()) <= 8):
+                    # Headings
+                    new_element = soup.new_tag('h2', **{'class': 'heading'})
+                elif any(sig in para.lower() for sig in ['signature', 'signed by', 'dated', 'by:', 'name:', 'title:']):
+                    # Signature blocks
+                    new_element = soup.new_tag('div', **{'class': 'signature'})
+                elif para.startswith(tuple('123456789')) and '.' in para[:10]:
+                    # Numbered clauses
+                    new_element = soup.new_tag('div', **{'class': 'clause'})
+                elif para.startswith('    ') or para.startswith('\t'):
+                    # Indented content
+                    new_element = soup.new_tag('div', **{'class': 'indent'})
+                else:
+                    # Regular paragraph
+                    new_element = soup.new_tag('div', **{'class': 'paragraph'})
                 
-                # Check beginning similarity (faster than full comparison)
-                prefix_len = min(len(orig_line), len(model_line), 10)
-                if orig_line[:prefix_len].lower() == model_line[:prefix_len].lower():
-                    # If beginnings match, this is likely a match with changes
-                    if orig_line != model_line:  # Only add if different
-                        replacements[orig_line] = model_line
-                    break
+                new_element.string = para
+                soup.body.append(new_element)
         
-        # Apply replacements to the soup - faster with direct replacements
-        for text_node, parent in text_nodes:
-            text_stripped = text_node.strip()
-            if text_stripped in replacements:
-                # Replace the text node with the model's version
-                text_node.replace_with(replacements[text_stripped])
+        result_html = str(soup)
+        print(f"Generated HTML length: {len(result_html)}")
+        return result_html
         
-        # Return the modified HTML
-        return str(soup)
     except Exception as e:
-        print(f"Error processing HTML with model: {str(e)}")
-        # Return a simple HTML with the model response
-        return f'<!DOCTYPE html><html><body><pre>{html.escape(model_response)}</pre></body></html>'
+        print(f"Error in HTML processing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Fallback: return original HTML
+        print("Falling back to original HTML due to error")
+        return html_content
 
 # Save PDF to a uniquely named file
 def save_pdf(pdf_buffer, original_filename):

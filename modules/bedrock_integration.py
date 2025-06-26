@@ -43,23 +43,30 @@ class BedrockClient:
             # Create Mistral-specific prompt format with [INST] and [/INST] tags
             mistral_prompt = f"<s>[INST] "
             # Add system prompt within the instruction
-            mistral_prompt += """You are a precise contract editor that strictly modifies legal documents according to user instructions.
+            mistral_prompt += """You are a precise contract editor that modifies legal documents according to user instructions while preserving HTML formatting.
 
 Core requirements:
 1. You MUST make ALL changes requested in the user's instructions - this is CRITICAL
-2. If there are MULTIPLE instructions (separated by line breaks or numbers), you MUST implement EACH ONE separately
-3. Make ONLY the changes specified in the instructions - do not add, remove, or modify anything else
-4. NEVER generate or invent new legal language not present in the original document
-5. ONLY modify text explicitly mentioned in the user's instructions
-6. Maintain exact terminology from the original document - do not substitute or paraphrase legal terms
-7. Process each instruction step by step - do not skip any requested change
-8. Return the FULL modified text, with ALL the requested changes implemented
+2. You MUST maintain the EXACT HTML structure and formatting of the original document
+3. ONLY modify the text content within HTML elements as specified in the instructions
+4. NEVER add, remove, or modify HTML tags, attributes, or structure
+5. Preserve ALL formatting elements: headings, paragraphs, styling, spacing
+6. If there are MULTIPLE instructions, implement EACH ONE separately
+7. Return the COMPLETE document with HTML formatting intact
+8. Make ONLY the text changes specified - do not alter anything else
+
+HTML FORMATTING RULES:
+- Keep all <div>, <h1>, <h2>, <p>, and other HTML tags exactly as they are
+- Maintain all CSS classes and styling attributes
+- Preserve line breaks, spacing, and document structure
+- Only change the actual text content between HTML tags
+- If the input has HTML structure, your output must have the same HTML structure
 
 IMPORTANT NOTES:
 - Pay special attention to company names, addresses, dates, and monetary values
-- Look carefully for the specific text mentioned in the instruction and replace it EXACTLY as requested
-- If an instruction says to change text from 'X' to 'Y', you MUST find and replace every instance of 'X' with 'Y'
-- Instructions often specify entity names with quotes (e.g., from 'ABC Inc.' to 'XYZ Corp.') - these are critical to replace correctly
+- Look for the specific text mentioned in the instruction and replace it EXACTLY as requested
+- Instructions often specify entity names with quotes (e.g., from 'ABC Inc.' to 'XYZ Corp.')
+- Maintain exact terminology from the original document for unchanged content
 - If you can't find the exact text mentioned, look for similar text that matches the context
 """
             
@@ -76,6 +83,11 @@ Some instructions may not apply to this specific chunk but to other parts of the
 Return the FULL modified text for this chunk with ALL applicable changes implemented."""
             mistral_prompt += " [/INST]"
             
+            # Add debug logging
+            logger.info(f"Sending prompt to Bedrock (length: {len(mistral_prompt)})")
+            logger.info(f"Chunk preview: {chunk[:200]}...")
+            logger.info(f"Instruction: {instruction}")
+            
             # Calculate max tokens based on input length - add buffer for the response
             chunk_len = len(chunk)
             max_tokens = min(4000, chunk_len + 500)
@@ -90,11 +102,34 @@ Return the FULL modified text for this chunk with ALL applicable changes impleme
             )
             
             # Extract the generated text from the response
-            generated_text = response.get('generation', '')
+            # Handle different response formats
+            generated_text = ""
+            if 'outputs' in response and len(response['outputs']) > 0:
+                # Format: {'outputs': [{'text': '...', 'stop_reason': 'stop'}]}
+                generated_text = response['outputs'][0].get('text', '')
+            elif 'generation' in response:
+                # Format: {'generation': '...'}
+                generated_text = response.get('generation', '')
+            else:
+                # Log the actual response format for debugging
+                logger.warning(f"Unexpected response format: {response}")
+                generated_text = ""
             
             # Log metrics and debugging information
             response_length = len(generated_text) if generated_text else 0
             logger.info(f"Completed chunk {current_chunk}/{total_chunks} - Response length: {response_length} chars in {time.time() - start_time:.2f}s")
+            
+            # Add detailed response logging
+            if generated_text:
+                logger.info(f"Response preview: {generated_text[:300]}...")
+                
+                # Check if the response actually contains changes
+                chunk_lower = chunk.lower()
+                response_lower = generated_text.lower()
+                if chunk_lower != response_lower:
+                    logger.info("✅ Response differs from original chunk - changes detected")
+                else:
+                    logger.warning("⚠️ Response identical to original chunk - no changes detected")
             
             # If response is empty or too short, return the original chunk
             if not generated_text or len(generated_text) < 10:

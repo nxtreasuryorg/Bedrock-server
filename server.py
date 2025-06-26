@@ -34,8 +34,8 @@ app.config['JSON_AS_ASCII'] = False  # Properly handle Unicode
 
 # Initialize paths for document storage
 script_dir = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER = os.path.join(script_dir, "..", "uploaded_docs")
-PDF_OUTPUT_FOLDER = os.path.join(script_dir, "..", "generated_pdfs")
+UPLOAD_FOLDER = os.path.join(script_dir, "uploaded_docs")
+PDF_OUTPUT_FOLDER = os.path.join(script_dir, "generated_pdfs")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PDF_OUTPUT_FOLDER, exist_ok=True)
 

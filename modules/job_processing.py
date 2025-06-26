@@ -195,7 +195,12 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
         # Try to process the entire document if it's small enough
         if len(document_content) < 25000:  # Updated threshold to match new chunk size
             print("Document small enough to process in one chunk - skipping chunking")
-            chunks = [document_content]
+            # Use HTML content for processing if available to preserve formatting
+            if html_content and len(html_content) > len(document_content):
+                chunks = [html_content]
+                print("Using HTML content for processing to preserve formatting")
+            else:
+                chunks = [document_content]
         elif len(chunks) <= 2:
             print(f"Document can be processed with {len(chunks)} chunks")
         else:
@@ -266,13 +271,17 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
                     job_results[job_id]['progress'] = 100
                     raise Exception(error_msg)
         
-        if not changes_detected:
-            print("WARNING: No changes detected in any chunk. The instruction may not match document content.")
-        
         # Combine chunks
         combined_response = "\n\n".join(processed_chunks)
         
         print(f"Model processing time: {time.time() - model_start:.2f} seconds")
+        print(f"Combined response length: {len(combined_response)} characters")
+        print(f"Combined response preview: {combined_response[:500]}...")
+        
+        if not changes_detected:
+            print("WARNING: No changes detected in any chunk. The instruction may not match document content.")
+        else:
+            print(f"✅ Changes detected in document processing")
         
         # Update job status
         job_results[job_id]['status'] = 'processing'

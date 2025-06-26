@@ -19,7 +19,7 @@ def extract_text_as_html(pdf_path):
         
         for page_num in range(len(doc)):
             page = doc[page_num]
-            text = page.extract_text("html")
+            text = page.get_text("html")
             html_output.append(text)
         
         html_output.append('</body></html>')
@@ -33,7 +33,7 @@ def extract_text_as_html(pdf_path):
             doc = fitz.open(pdf_path)
             text_content = ""
             for page_num in range(len(doc)):
-                text_content += doc[page_num].extract_text()
+                text_content += doc[page_num].get_text()
             doc.close()
             
             # Convert plain text to simple HTML
@@ -210,7 +210,7 @@ def process_with_bedrock(instruction, file_path, original_filename):
                 doc = fitz.open(file_path)
                 text_content = ""
                 for page_num in range(len(doc)):
-                    text_content += doc[page_num].extract_text()
+                    text_content += doc[page_num].get_text()
                 doc.close()
                 
                 # Convert text to basic HTML
