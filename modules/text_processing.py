@@ -1,15 +1,12 @@
-from langchain.vectorstores import FAISS
-from langchain.schema import Document
 import re
-import numpy as np
 from modules.bedrock_integration import BedrockClient
 
 # Initialize Bedrock client
 bedrock_client = BedrockClient()
 
 # Process a single chunk sequentially with a simple direct approach
-def process_chunk(chunk, instruction, chunk_id, text_generation_pipeline=None):
-    """Process chunk using Bedrock - text_generation_pipeline parameter kept for compatibility but not used"""
+def process_chunk(chunk, instruction, chunk_id):
+    """Process chunk using Bedrock"""
     try:
         # Use the Bedrock client to process the chunk
         return bedrock_client.process_chunk(chunk, instruction, chunk_id)
@@ -19,10 +16,10 @@ def process_chunk(chunk, instruction, chunk_id, text_generation_pipeline=None):
         return chunk, False
 
 # Process a chunk with change detection
-def process_chunk_with_change_detection(chunk, instruction, chunk_id, text_generation_pipeline=None):
+def process_chunk_with_change_detection(chunk, instruction, chunk_id):
     """Process chunk and detect if changes were made using Bedrock"""
     try:
-        return process_chunk(chunk, instruction, chunk_id, text_generation_pipeline)
+        return process_chunk(chunk, instruction, chunk_id)
     except Exception as e:
         print(f"Error in change detection for chunk {chunk_id}: {str(e)}")
         # Return original chunk on error, mark as unchanged
