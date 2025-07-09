@@ -1,8 +1,7 @@
 import fitz  # PyMuPDF
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
 from io import BytesIO
 import re
 import html
@@ -263,9 +262,13 @@ def save_pdf(pdf_buffer, original_filename):
     print(f"[PDF Generated] Saved to: {pdf_path}")
     return pdf_path
 
-# Generate a fallback PDF when HTML conversion fails
-def generate_fallback_pdf(pdf_buffer, text_content, job_id):
-    """Generate a simple PDF from plain text when HTML conversion fails"""
+# Generate a simplified fallback PDF when HTML conversion fails
+def generate_simple_pdf(pdf_buffer, text_content):
+    """Generate minimal PDF when HTML conversion fails - simplified approach"""
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib.pagesizes import letter
+    
     doc = SimpleDocTemplate(
         pdf_buffer,
         pagesize=letter,
@@ -276,74 +279,73 @@ def generate_fallback_pdf(pdf_buffer, text_content, job_id):
     )
 
     styles = getSampleStyleSheet()
-    
-    # Create basic styles - simplified for speed
-    normal_style = ParagraphStyle(
-        'NormalStyle',
-        parent=styles['Normal'],
-        fontName='Times-Roman',
-        fontSize=11,
-        leading=16,
-        spaceAfter=10
-    )
-    
-    heading_style = ParagraphStyle(
-        'HeadingStyle',
-        parent=styles['Heading2'],
-        fontName='Times-Bold',
-        fontSize=12,
-        leading=16,
-        spaceBefore=12,
-        spaceAfter=8
-    )
-    
-    signature_style = ParagraphStyle(
-        'SignatureStyle',
-        parent=styles['Normal'],
-        fontName='Times-Roman',
-        fontSize=11,
-        leading=14,
-        spaceBefore=20,
-        spaceAfter=30
-    )
-    
-    # Faster content building
     content = []
     
-    # Split into paragraphs and process in batches for speed
+    # Split into paragraphs - simple approach
     paragraphs = text_content.split('\n\n')
-    batch_size = 20
     
-    for batch_start in range(0, len(paragraphs), batch_size):
-        batch_end = min(batch_start + batch_size, len(paragraphs))
-        batch = paragraphs[batch_start:batch_end]
-        
-        for para in batch:
-            if not para.strip():
-                # Add space for empty paragraphs
-                content.append(Spacer(1, 10))
-                continue
-                
-            para_text = para.strip()
-            
-            # Fast pattern matching for content types
-            is_heading = bool(para_text.isupper() or para_text.endswith(':') or 
-                             (len(para_text.split()) <= 8 and para_text.split()[0][0].isupper()))
-                
-            is_signature = any(pattern in para_text.lower() 
-                              for pattern in ['signature', 'signed by', 'dated', 'provider:', 'client:'])
-            
-            # Apply appropriate style
-            if is_signature:
-                content.append(Paragraph(para_text, signature_style))
-            elif is_heading:
-                content.append(Paragraph(para_text, heading_style))
+    for para in paragraphs:
+        para = para.strip()
+        if para:
+            # Simple check for headings (all caps or ends with colon)
+            if para.isupper() and len(para.split()) <= 8:
+                content.append(Paragraph(para, styles['Heading2']))
             else:
-                # Replace line breaks with <br/> for proper rendering
-                formatted_text = para_text.replace('\n', '<br/>')
-                content.append(Paragraph(formatted_text, normal_style))
+                # Regular paragraph - replace line breaks with <br/>
+                formatted_para = para.replace('\n', '<br/>')
+                content.append(Paragraph(formatted_para, styles['Normal']))
+        else:
+            # Add spacing for empty paragraphs
+            content.append(Spacer(1, 12))
     
     # Build the document
     doc.build(content)
+    return pdf_buffer
+
+# Unified PDF generation function
+def generate_pdf(html_content, text_content=None):
+    """Unified PDF generation with simple fallback"""
+    from xhtml2pdf import pisa
+    from io import BytesIO
     
-    return pdf_buffer 
+    pdf_buffer = BytesIO()
+    
+    try:
+        # Primary: Try xhtml2pdf
+        pdf_status = pisa.CreatePDF(html_content, dest=pdf_buffer)
+        
+        if pdf_status.err:
+            print(f"xhtml2pdf failed with error: {pdf_status.err}")
+            raise Exception("xhtml2pdf conversion failed")
+        
+        # Check if PDF has content
+        if pdf_buffer.getvalue() and len(pdf_buffer.getvalue()) > 100:
+            print("✅ PDF generated successfully with xhtml2pdf")
+            return pdf_buffer
+        else:
+            raise Exception("Generated PDF is empty")
+            
+    except Exception as e:
+        print(f"xhtml2pdf failed: {str(e)}")
+        
+        # Fallback: Use simple ReportLab
+        try:
+            pdf_buffer = BytesIO()  # Reset buffer
+            
+            # Extract text from HTML if text_content not provided
+            if text_content is None:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_content, 'html.parser')
+                text_content = soup.get_text()
+            
+            print("🔄 Using simple PDF fallback with ReportLab")
+            return generate_simple_pdf(pdf_buffer, text_content)
+            
+        except Exception as fallback_error:
+            print(f"❌ Fallback PDF generation also failed: {str(fallback_error)}")
+            raise Exception(f"Both PDF generation methods failed: {str(e)} | {str(fallback_error)}")
+
+# Legacy function for backward compatibility - now just calls generate_simple_pdf
+def generate_fallback_pdf(pdf_buffer, text_content, job_id):
+    """Legacy function - now simplified and calls generate_simple_pdf"""
+    return generate_simple_pdf(pdf_buffer, text_content) 

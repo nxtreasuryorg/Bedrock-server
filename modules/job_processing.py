@@ -1,6 +1,5 @@
 import time
 import os
-import uuid
 from datetime import datetime
 import threading
 import queue
@@ -9,8 +8,6 @@ import html
 from io import BytesIO
 import fitz  # PyMuPDF
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-from langchain.schema import Document
 import concurrent.futures  # Added for parallel processing
 import re
 
@@ -60,8 +57,8 @@ processing_thread = None
 should_process = True
 
 # Process document and generate response
-def process_document(job_id, instruction, file_path, original_filename, embedding=None, text_generation_pipeline=None):
-    """Process document with AWS Bedrock - embedding and text_generation_pipeline parameters kept for compatibility but not used"""
+def process_document(job_id, instruction, file_path, original_filename):
+    """Process document with AWS Bedrock"""
     start_time = time.time()
     print(f"Starting job {job_id} with file: {original_filename}")
     
@@ -298,36 +295,24 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
         
         # Generate PDF from the processed HTML
         pdf_start = time.time()
-        pdf_buffer = BytesIO()
         
         try:
-            # Convert the HTML to PDF using xhtml2pdf
-            from xhtml2pdf import pisa
-            pisa.CreatePDF(processed_html, dest=pdf_buffer)
+            # Use the new unified PDF generation function
+            from modules.pdf_utils import generate_pdf
+            pdf_buffer = generate_pdf(processed_html, combined_response)
             
             # Update job status
             job_results[job_id]['status'] = 'processing'
             job_results[job_id]['progress'] = 85
-            job_results[job_id]['message'] = "Created professional contract document with preserved formatting"
+            job_results[job_id]['message'] = "PDF generated successfully"
                 
         except Exception as e:
-            print(f"Error during HTML-to-PDF generation: {str(e)}")
-            # Create a simpler PDF with fallback method
-            try:
-                # Use the original code for PDF generation
-                generate_fallback_pdf(pdf_buffer, combined_response, job_id)
-                
-                # Update job status
-                job_results[job_id]['status'] = 'processing'
-                job_results[job_id]['progress'] = 85
-                job_results[job_id]['message'] = "Created basic contract document"
-            except Exception as e2:
-                print(f"Fallback PDF generation also failed: {str(e2)}")
-                # Mark job as error
-                job_results[job_id]['status'] = 'error'
-                job_results[job_id]['message'] = f"PDF generation failed: {str(e2)}"
-                job_results[job_id]['progress'] = 100
-                raise Exception(f"PDF generation failed: {str(e2)}")
+            print(f"PDF generation failed: {str(e)}")
+            # Mark job as error
+            job_results[job_id]['status'] = 'error'
+            job_results[job_id]['message'] = f"PDF generation failed: {str(e)}"
+            job_results[job_id]['progress'] = 100
+            raise Exception(f"PDF generation failed: {str(e)}")
         
         print(f"PDF generation time: {time.time() - pdf_start:.2f} seconds")
         
@@ -390,14 +375,14 @@ def process_document(job_id, instruction, file_path, original_filename, embeddin
             print(f"⚠️ Warning: Could not remove uploaded file after error {file_path}: {str(cleanup_e)}")
 
 # Job processing worker thread
-def process_jobs(embedding=None, text_generation_pipeline=None):
+def process_jobs():
     """Background thread for processing jobs from the queue - updated for Bedrock"""
     while should_process:
         try:
             # Get a job from the queue with a timeout
             try:
                 job_id, instruction, file_path, original_filename = job_queue.get(timeout=1)
-                # Process the job with Bedrock (ignoring embedding and text_generation_pipeline)
+                # Process the job with Bedrock
                 process_document(job_id, instruction, file_path, original_filename)
             except queue.Empty:
                 # No jobs to process, wait a bit
@@ -409,13 +394,104 @@ def process_jobs(embedding=None, text_generation_pipeline=None):
             time.sleep(1)  # Wait a bit before trying again
 
 # Start the job processing thread
-def start_processing_thread(embedding=None, text_generation_pipeline=None):
+def start_processing_thread():
     """Start the background thread for job processing - updated for Bedrock"""
     global processing_thread
     processing_thread = threading.Thread(
         target=process_jobs, 
-        args=(),  # No need to pass models anymore
         daemon=True
     )
     processing_thread.start()
-    return processing_thread 
+    return processing_thread
+
+# Backward compatibility function - simplified version that doesn't use the job queue
+def process_with_bedrock(instruction, file_path, original_filename):
+    """Process document using AWS Bedrock - simplified version for direct calls"""
+    import uuid
+    from modules.pdf_utils import generate_pdf
+    
+    start_time = time.time()
+    try:
+        print("\n=== Starting direct Bedrock processing ===")
+        
+        # Extract as HTML to preserve formatting
+        html_content = extract_text_as_html(file_path)
+        
+        # Also extract plain text for processing
+        if file_path.lower().endswith('.pdf'):
+            doc = fitz.open(file_path)
+            document_content = ""
+            for page_num in range(len(doc)):
+                document_content += doc[page_num].get_text()
+            doc.close()
+        else:
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                document_content = f.read()
+        
+        # Process document content using existing logic
+        target_sections = find_instruction_targets(instruction, document_content)
+        
+        # Smart chunking
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=25000,
+            chunk_overlap=5000,
+            length_function=len,
+            separators=["\n\n", "\n", " ", ""]
+        )
+        chunks = text_splitter.split_text(document_content)
+        
+        # Process chunks
+        processed_chunks = [None] * len(chunks)
+        total_chunks = len(chunks)
+        
+        def process_chunk_worker(args):
+            chunk, idx = args
+            chunk_id = f"{idx+1}/{total_chunks}"
+            try:
+                result, changed = process_chunk_with_change_detection(chunk, instruction, chunk_id)
+                return idx, result, changed
+            except Exception as e:
+                print(f"Error processing chunk {chunk_id}: {str(e)}")
+                return idx, chunk, False
+        
+        # Use parallel processing
+        max_workers = min(total_chunks, 5)
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            chunk_args = [(chunk, i) for i, chunk in enumerate(chunks)]
+            futures = {executor.submit(process_chunk_worker, arg): arg for arg in chunk_args}
+            
+            for future in concurrent.futures.as_completed(futures):
+                idx, result, changed = future.result()
+                processed_chunks[idx] = result
+        
+        # Combine chunks
+        combined_response = "\n\n".join(processed_chunks)
+        
+        # Process HTML with changes
+        processed_html = process_html_with_model(html_content, combined_response)
+        
+        # Generate PDF
+        pdf_buffer = generate_pdf(processed_html, combined_response)
+        
+        # Save PDF
+        pdf_path = save_pdf(pdf_buffer, original_filename)
+        
+        # Convert to base64
+        pdf_buffer.seek(0)
+        pdf_base64 = base64.b64encode(pdf_buffer.getvalue()).decode('utf-8')
+        
+        total_time = time.time() - start_time
+        print(f"Direct processing completed in {total_time:.2f} seconds")
+        
+        return {
+            'response': combined_response,
+            'pdf_base64': pdf_base64,
+            'pdf_path': pdf_path
+        }
+        
+    except Exception as e:
+        error_time = time.time() - start_time
+        error_msg = f"Error occurred after {error_time:.2f} seconds: {str(e)}"
+        print(error_msg)
+        return {'error': True, 'message': error_msg} 
